@@ -260,7 +260,6 @@ void __swap_cache_replace_folio(struct swap_cluster_info *ci,
 void __swap_cache_clear_shadow(swp_entry_t entry, int nr_ents);
 
 void show_swap_cache_info(void);
-void swapcache_clear(struct swap_info_struct *si, swp_entry_t entry, int nr);
 struct folio *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		struct vm_area_struct *vma, unsigned long addr,
 		struct swap_iocb **plug);
@@ -401,10 +400,6 @@ static inline int swap_writeout(struct folio *folio,
 		struct swap_iocb **swap_plug)
 {
 	return 0;
-}
-
-static inline void swapcache_clear(struct swap_info_struct *si, swp_entry_t entry, int nr)
-{
 }
 
 static inline struct folio *swap_cache_get_folio(swp_entry_t entry)
