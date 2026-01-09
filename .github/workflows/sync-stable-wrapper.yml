@@ -59,7 +59,7 @@ jobs:
           git update-ref refs/heads/linux-6.18.y "${NEW_COMMIT}"
 
           # 关键：在 wrapper commit 上创建/更新同名 tag（轻量 tag）
-          git tag -f "${UP_TAG}" "${NEW_COMMIT}"
+          git tag -a -f "${UP_TAG}" -m "Linux ${VERSION}" "${NEW_COMMIT}"
 
       - name: Push branch and tag
         run: |
