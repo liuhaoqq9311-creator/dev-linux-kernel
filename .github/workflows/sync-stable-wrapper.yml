@@ -1,10 +1,10 @@
-name: Sync stable as wrapper commits
+name: Sync stable as wrapper commits + tags
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Stable tag to sync (e.g. 6.18.1)"
+        description: "Stable version to sync (e.g. 6.18.4)"
         required: true
         type: string
 
@@ -25,51 +25,46 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream and fetch tag
+      - name: Add upstream and fetch the upstream tag
         run: |
           git remote add upstream https://github.com/gregkh/linux.git || true
           git fetch --no-tags upstream "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}"
 
       - name: Fetch origin branch (optional)
         run: |
-          set -euo pipefail
-          # 如果远端分支不存在，不要让 workflow 失败
+          # 如果远端还没有 linux-6.18.y，不让它失败
           git fetch origin linux-6.18.y:refs/remotes/origin/linux-6.18.y || true
-      
-          echo "=== remote refs (origin) ==="
-          git ls-remote --heads origin | head -n 50
-      
-          echo "=== show-ref (origin/linux-6.18.y) ==="
-          git show-ref --verify --quiet refs/remotes/origin/linux-6.18.y && echo "origin/linux-6.18.y exists" || echo "origin/linux-6.18.y NOT found (first run is OK)"
 
-
-      - name: Create wrapper commit with upstream tree
+      - name: Create wrapper commit (tree identical to upstream tag)
         run: |
           set -euo pipefail
 
           VERSION="${{ inputs.version }}"
-          TAG="v${VERSION}"
-          MSG="linux-${VERSION}"
+          UP_TAG="v${VERSION}"
+          COMMIT_MSG="linux-${VERSION}"
 
-          # upstream tag commit and its tree
-          UP_COMMIT="$(git rev-parse "${TAG}^{commit}")"
+          UP_COMMIT="$(git rev-parse "${UP_TAG}^{commit}")"
           UP_TREE="$(git rev-parse "${UP_COMMIT}^{tree}")"
 
-          # current origin head as parent (or create an orphan if branch doesn't exist yet)
           if git show-ref --verify --quiet refs/remotes/origin/linux-6.18.y; then
             PARENT="$(git rev-parse refs/remotes/origin/linux-6.18.y)"
-            NEW_COMMIT="$(git commit-tree "${UP_TREE}" -p "${PARENT}" -m "${MSG}")"
+            NEW_COMMIT="$(git commit-tree "${UP_TREE}" -p "${PARENT}" -m "${COMMIT_MSG}")"
           else
-            # first time: create initial commit with that tree, no parent
-            NEW_COMMIT="$(git commit-tree "${UP_TREE}" -m "${MSG}")"
+            NEW_COMMIT="$(git commit-tree "${UP_TREE}" -m "${COMMIT_MSG}")"
           fi
 
-          echo "Upstream commit: ${UP_COMMIT}"
-          echo "New wrapper commit: ${NEW_COMMIT}"
+          echo "Upstream tag commit: ${UP_COMMIT}"
+          echo "New wrapper commit:  ${NEW_COMMIT}"
 
-          # update local branch ref
           git update-ref refs/heads/linux-6.18.y "${NEW_COMMIT}"
 
-      - name: Push wrapper branch update
+          # 关键：在 wrapper commit 上创建/更新同名 tag（轻量 tag）
+          git tag -f "${UP_TAG}" "${NEW_COMMIT}"
+
+      - name: Push branch and tag
         run: |
-          git push origin refs/heads/linux-6.18.y:refs/heads/linux-6.18.y
+          set -euo pipefail
+          # 推分支
+          git push origin refs/heads/linux-6.18.y:refs/heads/linux-6.18.y --force
+          # 推 tag（需要 --force，因为可能重复跑覆盖）
+          git push origin "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}" --force
