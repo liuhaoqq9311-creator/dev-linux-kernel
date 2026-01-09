@@ -30,9 +30,18 @@ jobs:
           git remote add upstream https://github.com/gregkh/linux.git || true
           git fetch --no-tags upstream "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}"
 
-      - name: Fetch origin branch
+      - name: Fetch origin branch (optional)
         run: |
-          git fetch origin "linux-6.18.y:refs/remotes/origin/linux-6.18.y"
+          set -euo pipefail
+          # 如果远端分支不存在，不要让 workflow 失败
+          git fetch origin linux-6.18.y:refs/remotes/origin/linux-6.18.y || true
+      
+          echo "=== remote refs (origin) ==="
+          git ls-remote --heads origin | head -n 50
+      
+          echo "=== show-ref (origin/linux-6.18.y) ==="
+          git show-ref --verify --quiet refs/remotes/origin/linux-6.18.y && echo "origin/linux-6.18.y exists" || echo "origin/linux-6.18.y NOT found (first run is OK)"
+
 
       - name: Create wrapper commit with upstream tree
         run: |
