@@ -1,0 +1,66 @@
+name: Sync stable as wrapper commits
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Stable tag to sync (e.g. 6.18.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo (full history on runner)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream and fetch tag
+        run: |
+          git remote add upstream https://github.com/gregkh/linux.git || true
+          git fetch --no-tags upstream "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}"
+
+      - name: Fetch origin branch
+        run: |
+          git fetch origin "linux-6.18.y:refs/remotes/origin/linux-6.18.y"
+
+      - name: Create wrapper commit with upstream tree
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ inputs.version }}"
+          TAG="v${VERSION}"
+          MSG="linux-${VERSION}"
+
+          # upstream tag commit and its tree
+          UP_COMMIT="$(git rev-parse "${TAG}^{commit}")"
+          UP_TREE="$(git rev-parse "${UP_COMMIT}^{tree}")"
+
+          # current origin head as parent (or create an orphan if branch doesn't exist yet)
+          if git show-ref --verify --quiet refs/remotes/origin/linux-6.18.y; then
+            PARENT="$(git rev-parse refs/remotes/origin/linux-6.18.y)"
+            NEW_COMMIT="$(git commit-tree "${UP_TREE}" -p "${PARENT}" -m "${MSG}")"
+          else
+            # first time: create initial commit with that tree, no parent
+            NEW_COMMIT="$(git commit-tree "${UP_TREE}" -m "${MSG}")"
+          fi
+
+          echo "Upstream commit: ${UP_COMMIT}"
+          echo "New wrapper commit: ${NEW_COMMIT}"
+
+          # update local branch ref
+          git update-ref refs/heads/linux-6.18.y "${NEW_COMMIT}"
+
+      - name: Push wrapper branch update
+        run: |
+          git push origin refs/heads/linux-6.18.y:refs/heads/linux-6.18.y
