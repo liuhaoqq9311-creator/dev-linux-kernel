@@ -25,10 +25,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream and fetch the upstream tag
+      - name: Add upstream and force-fetch upstream tag (overwrite local tag)
         run: |
+          set -euo pipefail
           git remote add upstream https://github.com/gregkh/linux.git || true
-          git fetch --no-tags upstream "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}"
+      
+          # 强制把 upstream 的 vX.Y.Z 写到本地同名 tag（即使本地已存在也覆盖）
+          git fetch --no-tags --force upstream "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}"
+      
+          # 打印一下确认当前本地 vX.Y.Z 现在确实是 upstream 的那个 commit
+          git show -s --oneline "v${{ inputs.version }}"
 
       - name: Fetch origin branch (optional)
         run: |
