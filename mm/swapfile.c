@@ -970,6 +970,7 @@ static unsigned int alloc_swap_scan_list(struct swap_info_struct *si,
 					 bool scan_all)
 {
 	unsigned int found = SWAP_ENTRY_INVALID;
+	unsigned int order = likely(folio) ? folio_order(folio) : 0;
 
 	do {
 		struct swap_cluster_info *ci = isolate_lock_cluster(si, list, order);
