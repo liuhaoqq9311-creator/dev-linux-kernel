@@ -282,6 +282,7 @@ static int discard_swap(struct swap_info_struct *si)
 	struct swap_extent *se;
 	sector_t start_block;
 	sector_t nr_blocks;
+	int err = 0;
 
 	/* Do not discard the swap header page! */
 	se = first_se(si);
