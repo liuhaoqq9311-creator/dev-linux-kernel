@@ -583,10 +583,10 @@ static inline void memcg_rstat_updated(struct mem_cgroup *memcg, int val,
 		if (memcg_vmstats_needs_flush(statc->vmstats))
 			break;
 
-			stats_updates = this_cpu_add_return(statc_pcpu->stats_updates,
-							    abs(val));
-			if (likely(stats_updates < MEMCG_CHARGE_BATCH))
-				continue;
+		stats_updates = this_cpu_add_return(statc_pcpu->stats_updates,
+						    abs(val));
+		if (stats_updates < MEMCG_CHARGE_BATCH)
+			continue;
 
 		stats_updates = this_cpu_xchg(statc_pcpu->stats_updates, 0);
 		atomic_add(stats_updates, &statc->vmstats->stats_updates);
@@ -772,7 +772,7 @@ void __mod_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 	__mod_node_page_state(lruvec_pgdat(lruvec), idx, val);
 
 	/* Update memcg and lruvec */
-	if (likely(!mem_cgroup_disabled()))
+	if (!mem_cgroup_disabled())
 		mod_memcg_lruvec_state(lruvec, idx, val);
 }
 
