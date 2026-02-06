@@ -40,7 +40,6 @@
 #include <linux/oom.h>
 #include <linux/numa.h>
 #include <linux/pagewalk.h>
-#include <linux/timer.h>
 
 #include <asm/tlbflush.h>
 #include "internal.h"
@@ -2786,20 +2785,15 @@ static int ksm_scan_thread(void *nothing)
 			ksm_do_scan(ksm_thread_pages_to_scan);
 		mutex_unlock(&ksm_thread_mutex);
 
-			if (ksmd_should_run()) {
-				unsigned long timeout;
-
-				sleep_ms = READ_ONCE(ksm_thread_sleep_millisecs);
-				timeout = msecs_to_jiffies(sleep_ms);
-				if (sleep_ms >= 1000)
-					timeout = round_jiffies_relative(timeout);
-				wait_event_freezable_timeout(ksm_iter_wait,
-					sleep_ms != READ_ONCE(ksm_thread_sleep_millisecs),
-					timeout);
-			} else {
-				wait_event_freezable(ksm_thread_wait,
-					ksmd_should_run() || kthread_should_stop());
-			}
+		if (ksmd_should_run()) {
+			sleep_ms = READ_ONCE(ksm_thread_sleep_millisecs);
+			wait_event_freezable_timeout(ksm_iter_wait,
+				sleep_ms != READ_ONCE(ksm_thread_sleep_millisecs),
+				msecs_to_jiffies(sleep_ms));
+		} else {
+			wait_event_freezable(ksm_thread_wait,
+				ksmd_should_run() || kthread_should_stop());
+		}
 	}
 	return 0;
 }
