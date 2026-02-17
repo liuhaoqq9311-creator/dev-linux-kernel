@@ -739,16 +739,38 @@ static void relocate_cluster(struct swap_info_struct *si,
 }
 
 /*
- * The cluster corresponding to page_nr will be used. The cluster will not be
- * added to free cluster list and its usage counter will be increased by 1.
- * Only used for initialization.
+ * Mark a bad or masked-out slot during initialization. The cluster will stay
+ * off the free list and its usage counter will be increased by 1.
  */
-static int inc_cluster_info_page(struct swap_info_struct *si,
-	struct swap_cluster_info *cluster_info, unsigned long page_nr)
+static int swap_cluster_setup_bad_slot(struct swap_info_struct *si,
+				       struct swap_cluster_info *cluster_info,
+				       unsigned long offset, bool mask)
 {
-	unsigned long idx = page_nr / SWAPFILE_CLUSTER;
+	unsigned long idx = offset / SWAPFILE_CLUSTER;
 	struct swap_table *table;
 	struct swap_cluster_info *ci;
+
+	/* si->max may be shrunk by swap_activate(). */
+	if (offset >= si->max) {
+		if (!mask)
+			pr_debug("Ignoring bad slot %lu (max: %u)\n", offset, si->max);
+	} else if (!mask) {
+		/*
+		 * Account it, but skip the header slot: si->pages starts as
+		 * si->max - 1. Also skip the tail mask beyond si->max.
+		 */
+		if (offset)
+			si->pages--;
+		if (!si->pages) {
+			pr_warn("Empty swap-file\n");
+			return -EINVAL;
+		}
+		if (si->swap_map[offset]) {
+			pr_warn("Duplicated bad slot offset %lu\n", offset);
+			return -EINVAL;
+		}
+		si->swap_map[offset] = SWAP_MAP_BAD;
+	}
 
 	ci = cluster_info + idx;
 	if (!ci->table) {
@@ -3276,29 +3298,12 @@ static int setup_swap_map(struct swap_info_struct *si,
 			  union swap_header *swap_header,
 			  unsigned long maxpages)
 {
-	unsigned long i;
 	unsigned char *swap_map;
 
 	swap_map = vzalloc(maxpages);
 	si->swap_map = swap_map;
 	if (!swap_map)
 		return -ENOMEM;
-
-	swap_map[0] = SWAP_MAP_BAD; /* omit header page */
-	for (i = 0; i < swap_header->info.nr_badpages; i++) {
-		unsigned int page_nr = swap_header->info.badpages[i];
-		if (page_nr == 0 || page_nr > swap_header->info.last_page)
-			return -EINVAL;
-		if (page_nr < maxpages) {
-			swap_map[page_nr] = SWAP_MAP_BAD;
-			si->pages--;
-		}
-	}
-
-	if (!si->pages) {
-		pr_warn("Empty swap-file\n");
-		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -3330,26 +3335,29 @@ static int setup_swap_clusters_info(struct swap_info_struct *si,
 	}
 
 	/*
-	 * Mark unusable pages as unavailable. The clusters aren't
-	 * marked free yet, so no list operations are involved yet.
-	 *
-	 * See setup_swap_map(): header page, bad pages,
-	 * and the EOF part of the last cluster.
+	 * Mark unusable pages as unavailable. This includes the header page,
+	 * bad pages, and the EOF tail of the last cluster. The clusters are
+	 * not free yet, so no list operations are involved here.
 	 */
-	err = inc_cluster_info_page(si, cluster_info, 0);
+	err = swap_cluster_setup_bad_slot(si, cluster_info, 0, false);
 	if (err)
 		goto err;
 	for (i = 0; i < swap_header->info.nr_badpages; i++) {
 		unsigned int page_nr = swap_header->info.badpages[i];
 
-		if (page_nr >= maxpages)
-			continue;
-		err = inc_cluster_info_page(si, cluster_info, page_nr);
+		if (!page_nr || page_nr > swap_header->info.last_page) {
+			pr_warn("Bad slot offset is out of border: %u (last_page: %u)\n",
+				page_nr, swap_header->info.last_page);
+			err = -EINVAL;
+			goto err;
+		}
+		err = swap_cluster_setup_bad_slot(si, cluster_info, page_nr,
+						 false);
 		if (err)
 			goto err;
 	}
 	for (i = maxpages; i < round_up(maxpages, SWAPFILE_CLUSTER); i++) {
-		err = inc_cluster_info_page(si, cluster_info, i);
+		err = swap_cluster_setup_bad_slot(si, cluster_info, i, true);
 		if (err)
 			goto err;
 	}
