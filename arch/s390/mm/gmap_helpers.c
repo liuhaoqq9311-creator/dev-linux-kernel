@@ -32,7 +32,7 @@ static void ptep_zap_swap_entry(struct mm_struct *mm, swp_entry_t entry)
 		dec_mm_counter(mm, MM_SWAPENTS);
 	else if (is_migration_entry(entry))
 		dec_mm_counter(mm, mm_counter(pfn_swap_entry_folio(entry)));
-	free_swap_and_cache(entry);
+	swap_put_entries_direct(entry, 1);
 }
 
 /**
