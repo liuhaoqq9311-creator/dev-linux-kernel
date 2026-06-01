@@ -641,7 +641,7 @@ static struct swap_cluster_info *isolate_lock_cluster(
 	spin_unlock(&si->lock);
 
 	/* Cluster's table is freed when and only when it's on the free list. */
-	if (found && flags == CLUSTER_FLAG_FREE) {
+	if (found && list == &si->free_clusters) {
 		VM_WARN_ON_ONCE(list != &si->free_clusters);
 		VM_WARN_ON_ONCE(cluster_table_is_alloced(found));
 		return swap_cluster_populate(si, found);
