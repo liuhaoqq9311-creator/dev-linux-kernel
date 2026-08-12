@@ -4864,6 +4864,13 @@ static inline bool is_single_type_reclaim(int swappiness)
 	       swappiness == SWAPPINESS_ANON_ONLY;
 }
 
+/* See get_type_to_scan(): these values always select FILE or ANON */
+static inline bool is_extreme_swappiness(int swappiness)
+{
+	return swappiness <= MIN_SWAPPINESS + 1 ||
+	       swappiness >= MAX_SWAPPINESS;
+}
+
 static int isolate_folios(unsigned long nr_to_scan, struct lruvec *lruvec,
 			  struct scan_control *sc, int swappiness,
 			  struct list_head *list, int *isolated,
@@ -5003,8 +5010,11 @@ static bool should_run_aging(struct lruvec *lruvec, unsigned long max_seq,
 	if (evictable_min_seq(min_seq, swappiness) + MIN_NR_GENS > max_seq)
 		return true;
 
-	/* try to avoid aging, do gentle reclaim at the default priority */
-	if (sc->priority == DEF_PRIORITY)
+	/*
+	 * Try to avoid aging by doing gentle reclaim at the default
+	 * priority. Skip gentle reclaim for extreme swappiness.
+	 */
+	if (sc->priority == DEF_PRIORITY && !is_extreme_swappiness(swappiness))
 		return false;
 
 	/* better to run aging even though eviction is still possible */
