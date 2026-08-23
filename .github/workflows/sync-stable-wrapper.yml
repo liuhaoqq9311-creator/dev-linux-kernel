@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Stable version to sync (e.g. 6.18.4)"
+        description: "版本号：精确版 6.18.4 / 系列版 6.18.y（自动取该系列最新）"
         required: true
         type: string
 
@@ -25,52 +25,91 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream and force-fetch upstream tag (overwrite local tag)
+      - name: Add upstream
+        run: git remote add upstream https://github.com/gregkh/linux.git || true
+
+      - name: Resolve version / series / branch
+        env:
+          RAW_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          git remote add upstream https://github.com/gregkh/linux.git || true
-      
-          # 强制把 upstream 的 vX.Y.Z 写到本地同名 tag（即使本地已存在也覆盖）
-          git fetch --no-tags --force upstream "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}"
-      
-          # 打印一下确认当前本地 vX.Y.Z 现在确实是 upstream 的那个 commit
-          git show -s --oneline "v${{ inputs.version }}"
+          RAW="${RAW_INPUT#v}"
+
+          if [[ "$RAW" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            SERIES="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            VERSION="$RAW"
+          elif [[ "$RAW" =~ ^([0-9]+)\.([0-9]+)(\.y)?$ ]]; then
+            SERIES="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            VERSION=""
+          else
+            echo "::error::版本格式不对：$RAW（应为 6.18.4 或 6.18.y）"
+            exit 1
+          fi
+
+          # 系列版：从 upstream 找该系列最新的 stable tag（排除 -rc）
+          if [ -z "$VERSION" ]; then
+            VERSION="$(git ls-remote --tags --refs upstream "refs/tags/v${SERIES}*" \
+              | awk '{print $2}' | sed 's#refs/tags/v##' \
+              | grep -E "^${SERIES}(\.[0-9]+)?$" \
+              | sort -V | tail -n1)"
+            if [ -z "$VERSION" ]; then
+              echo "::error::upstream 上找不到 v${SERIES} 系列的 tag"
+              exit 1
+            fi
+            echo "系列 ${SERIES} 解析到最新版本：${VERSION}"
+          fi
+
+          {
+            echo "VERSION=${VERSION}"
+            echo "SERIES=${SERIES}"
+            echo "UP_TAG=v${VERSION}"
+            echo "BRANCH=linux-${SERIES}.y"
+          } >> "$GITHUB_ENV"
+
+      - name: Force-fetch upstream tag (overwrite local tag)
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force upstream "refs/tags/${UP_TAG}:refs/tags/${UP_TAG}"
+          git show -s --oneline "${UP_TAG}"
 
       - name: Fetch origin branch (optional)
         run: |
-          # 如果远端还没有 linux-6.18.y，不让它失败
-          git fetch origin linux-6.18.y:refs/remotes/origin/linux-6.18.y || true
+          # 远端还没有这个分支时不让它失败
+          git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}" || true
 
       - name: Create wrapper commit (tree identical to upstream tag)
         run: |
           set -euo pipefail
-
-          VERSION="${{ inputs.version }}"
-          UP_TAG="v${VERSION}"
           COMMIT_MSG="linux-${VERSION}"
-
           UP_COMMIT="$(git rev-parse "${UP_TAG}^{commit}")"
           UP_TREE="$(git rev-parse "${UP_COMMIT}^{tree}")"
 
-          if git show-ref --verify --quiet refs/remotes/origin/linux-6.18.y; then
-            PARENT="$(git rev-parse refs/remotes/origin/linux-6.18.y)"
+          if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+            PARENT="$(git rev-parse "refs/remotes/origin/${BRANCH}")"
+            echo "分支 ${BRANCH} 已存在，接在 ${PARENT} 之后"
             NEW_COMMIT="$(git commit-tree "${UP_TREE}" -p "${PARENT}" -m "${COMMIT_MSG}")"
           else
+            echo "分支 ${BRANCH} 不存在，创建为根提交"
             NEW_COMMIT="$(git commit-tree "${UP_TREE}" -m "${COMMIT_MSG}")"
           fi
 
           echo "Upstream tag commit: ${UP_COMMIT}"
           echo "New wrapper commit:  ${NEW_COMMIT}"
 
-          git update-ref refs/heads/linux-6.18.y "${NEW_COMMIT}"
-
-          # 关键：在 wrapper commit 上创建/更新同名 tag（轻量 tag）
+          git update-ref "refs/heads/${BRANCH}" "${NEW_COMMIT}"
           git tag -a -f "${UP_TAG}" -m "Linux ${VERSION}" "${NEW_COMMIT}"
 
       - name: Push branch and tag
         run: |
           set -euo pipefail
-          # 推分支
-          git push origin refs/heads/linux-6.18.y:refs/heads/linux-6.18.y --force
-          # 推 tag（需要 --force，因为可能重复跑覆盖）
-          git push origin "refs/tags/v${{ inputs.version }}:refs/tags/v${{ inputs.version }}" --force
+          git push origin "refs/heads/${BRANCH}:refs/heads/${BRANCH}" --force
+          git push origin "refs/tags/${UP_TAG}:refs/tags/${UP_TAG}" --force
+
+      - name: Summary
+        run: |
+          {
+            echo "### 同步完成"
+            echo "- 版本：\`${VERSION}\`"
+            echo "- 分支：\`${BRANCH}\`"
+            echo "- Tag：\`${UP_TAG}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
