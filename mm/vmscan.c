@@ -3855,6 +3855,13 @@ static inline void flush_lru_batch(struct list_head *head, struct list_head **ba
 	*batch_end = NULL;
 }
 
+/* See get_type_to_scan(): these values always select FILE or ANON */
+static inline bool is_extreme_swappiness(int swappiness)
+{
+	return swappiness <= MIN_SWAPPINESS + 1 ||
+	       swappiness >= MAX_SWAPPINESS;
+}
+
 static bool inc_min_seq(struct lruvec *lruvec, int type, int swappiness)
 {
 	int zone;
@@ -4870,13 +4877,6 @@ static inline bool is_single_type_reclaim(int swappiness)
 {
 	return swappiness == MIN_SWAPPINESS ||
 	       swappiness == SWAPPINESS_ANON_ONLY;
-}
-
-/* See get_type_to_scan(): these values always select FILE or ANON */
-static inline bool is_extreme_swappiness(int swappiness)
-{
-	return swappiness <= MIN_SWAPPINESS + 1 ||
-	       swappiness >= MAX_SWAPPINESS;
 }
 
 static int isolate_folios(unsigned long nr_to_scan, struct lruvec *lruvec,
